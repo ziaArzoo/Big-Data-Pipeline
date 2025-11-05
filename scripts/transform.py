@@ -1,65 +1,80 @@
-import boto3, os, tempfile
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import to_timestamp, date_format
+import json
+import io
+import polars as pl
+from datetime import datetime
+from minio_utils import get_minio_client, ensure_bucket, clear_bucket
 
 # -------------------------------
 # Config
 # -------------------------------
-MINIO_ENDPOINT = "http://20.167.18.24:9000"
-ACCESS_KEY = "minio"
-SECRET_KEY = "minio123"
-RAW_BUCKET = "minio"
-PROCESSED_BUCKET = "minio"
-
-LOCAL_RAW_DIR = tempfile.mkdtemp(prefix="raw_")
-LOCAL_PROCESSED_DIR = tempfile.mkdtemp(prefix="processed_")
+BUCKET_RAW = "raw"
+BUCKET_PROCESSED = "processed"
+SYMBOLS = ["AAPL", "MSFT", "GOOG"]
 
 # -------------------------------
-# Connect to MinIO
+# Helper — get latest file per symbol
 # -------------------------------
-s3 = boto3.client(
-    "s3",
-    endpoint_url=MINIO_ENDPOINT,
-    aws_access_key_id=ACCESS_KEY,
-    aws_secret_access_key=SECRET_KEY,
-)
+def get_latest_files(s3):
+    """Fetch the latest JSON file for each stock symbol."""
+    objs = s3.list_objects_v2(Bucket=BUCKET_RAW).get("Contents", [])
+    if not objs:
+        raise Exception("No raw files found!")
+
+    latest = {}
+    for obj in objs:
+        key = obj["Key"]
+        for symbol in SYMBOLS:
+            if key.startswith(symbol):
+                if symbol not in latest or obj["LastModified"] > latest[symbol]["LastModified"]:
+                    latest[symbol] = obj
+    return latest
 
 # -------------------------------
-# Download Raw Files from MinIO
+# Transform Logic
 # -------------------------------
-objects = s3.list_objects_v2(Bucket=RAW_BUCKET, Prefix="raw/").get("Contents", [])
-for obj in objects:
-    key = obj["Key"]
-    if key.endswith(".json"):
-        local_path = os.path.join(LOCAL_RAW_DIR, os.path.basename(key))
-        s3.download_file(RAW_BUCKET, key, local_path)
-        print(f"⬇️ Downloaded {key}")
+def transform_and_upload():
+    s3 = get_minio_client()
+    ensure_bucket(s3, BUCKET_PROCESSED)
+
+    # 🧹 Clear processed folder before writing new outputs
+    clear_bucket(s3, BUCKET_PROCESSED)
+
+    latest_files = get_latest_files(s3)
+    if not latest_files:
+        raise Exception("No files found to process.")
+
+    for symbol, meta in latest_files.items():
+        key = meta["Key"]
+        print(f"📥 Reading {key}")
+
+        data = s3.get_object(Bucket=BUCKET_RAW, Key=key)["Body"].read()
+        records = json.loads(data)
+        df = pl.DataFrame(records)
+
+        # Detect datetime column
+        dt_col = next((c for c in df.columns if "datetime" in c.lower()), None)
+        if dt_col:
+            df = df.with_columns([
+                pl.col(dt_col).str.strptime(pl.Datetime, "%Y-%m-%d %H:%M:%S", strict=False).alias("Datetime")
+            ])
+
+        # Keep essential columns
+        cols_to_keep = [c for c in ["Datetime", "Open", "High", "Low", "Close", "Volume", "symbol"] if c in df.columns]
+        df = df.select(cols_to_keep)
+
+        # 🧾 Write one file per stock
+        buffer = io.BytesIO()
+        df.write_parquet(buffer)
+        timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+        key_out = f"{symbol}_processed_{timestamp}.parquet"
+        s3.put_object(Bucket=BUCKET_PROCESSED, Key=key_out, Body=buffer.getvalue())
+        print(f"✅ Uploaded processed file for {symbol} → {key_out}")
+
+    print("🎯 All symbols processed successfully!")
+
 
 # -------------------------------
-# Process with Spark
+# Entry Point
 # -------------------------------
-spark = SparkSession.getActiveSession()
-df = spark.read.option("multiline", "true").json(LOCAL_RAW_DIR)
-
-df = (
-    df.withColumn("event_time", to_timestamp("Datetime"))
-      .withColumn("date", date_format("event_time", "yyyy-MM-dd"))
-)
-
-cols = [c for c in ["symbol", "event_time", "date", "Open", "High", "Low", "Close", "Volume"] if c in df.columns]
-df = df.select(*cols)
-
-df.write.mode("overwrite").parquet(LOCAL_PROCESSED_DIR)
-print(f"✅ Spark processed data saved locally: {LOCAL_PROCESSED_DIR}")
-
-# -------------------------------
-# Upload Processed Parquet Back to MinIO
-# -------------------------------
-for root, _, files in os.walk(LOCAL_PROCESSED_DIR):
-    for file in files:
-        path = os.path.join(root, file)
-        key = f"processed/{file}"
-        s3.upload_file(path, PROCESSED_BUCKET, key)
-        print(f"⬆️ Uploaded {key}")
-
-print("✅ ETL complete — data processed and reuploaded to MinIO.")
+if __name__ == "__main__":
+    transform_and_upload()

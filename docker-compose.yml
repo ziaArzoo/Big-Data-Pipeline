@@ -6,16 +6,14 @@ services:
     image: minio/minio:latest
     container_name: minio
     ports:
-      - "9000:9000"   # API
-      - "9001:9001"   # Web UI
+      - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: minio123
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
-    networks:
-      - big-data-network
 
   # ----------------
   # Airflow (Orchestration)
@@ -37,32 +35,7 @@ services:
       - ./scripts:/opt/airflow/project/scripts
     depends_on:
       - minio
-    networks:
-      - big-data-network
-
-  # ----------------
-  # Apache Spark (PySpark)
-  # ----------------
-  spark:
-    image: apache/spark:latest
-    container_name: spark
-    command: bash -c "/opt/spark/sbin/start-master.sh --properties-file /opt/spark/conf/spark-defaults.conf && tail -f /opt/spark/logs/spark--org.apache.spark.deploy.master*.out"
-    environment:
-      - SPARK_MASTER_HOST=spark
-      - SPARK_NO_DAEMONIZE=true
-    volumes:
-      - ./scripts:/opt/spark-apps
-    ports:
-      - "4040:4040"   # Spark UI
-      - "7077:7077"   # Spark Master
-    depends_on:
-      - minio
-    networks:
-      - big-data-network
 
 volumes:
   minio_data:
 
-networks:
-  big-data-network:
-    driver: bridge
