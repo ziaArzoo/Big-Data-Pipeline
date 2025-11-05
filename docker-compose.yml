@@ -14,6 +14,8 @@ services:
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
+    networks:
+      - big-data-network
 
   # ----------------
   # Airflow (Orchestration)
@@ -29,11 +31,38 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////usr/local/airflow/airflow.db
     command: >
-      bash -c "airflow db init &&
-               airflow users create --username admin --password admin --firstname Zia --lastname Arz --role Admin --email admin@example.com &&
-               airflow webserver & airflow scheduler"
+      bash -c "pip install pyspark boto3 s3fs pyarrow pandas scikit-learn joblib great_expectations && airflow db init && airflow users create --username admin --password admin --firstname Zia --lastname Arz --role Admin --email admin@example.com && airflow webserver & airflow scheduler"
     volumes:
       - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/project/scripts
+    depends_on:
+      - minio
+    networks:
+      - big-data-network
+
+  # ----------------
+  # Apache Spark (PySpark)
+  # ----------------
+  spark:
+    image: apache/spark:latest
+    container_name: spark
+    command: bash -c "/opt/spark/sbin/start-master.sh --properties-file /opt/spark/conf/spark-defaults.conf && tail -f /opt/spark/logs/spark--org.apache.spark.deploy.master*.out"
+    environment:
+      - SPARK_MASTER_HOST=spark
+      - SPARK_NO_DAEMONIZE=true
+    volumes:
+      - ./scripts:/opt/spark-apps
+    ports:
+      - "4040:4040"   # Spark UI
+      - "7077:7077"   # Spark Master
+    depends_on:
+      - minio
+    networks:
+      - big-data-network
 
 volumes:
   minio_data:
+
+networks:
+  big-data-network:
+    driver: bridge
