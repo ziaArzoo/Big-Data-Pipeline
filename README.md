@@ -7,6 +7,34 @@ A modular, cloud-native data pipeline for real-time stock analytics — showcasi
 ---
 
 ## 🧱 Architecture
+
+```
+┌──────────────────────┐
+│     yFinance API     │
+└─────────┬────────────┘
+          │
+          ▼
+ [stock_ingestor.py]
+     ├─ Fetch JSON data
+     └─ Upload to MinIO (raw/)
+
+          ▼
+ [transform.py]
+     ├─ Clean, normalize
+     └─ Save to MinIO (processed/)
+
+          ▼
+ [combine_processed.py]
+     ├─ Merge per-symbol datasets
+     └─ Save combined parquet
+
+          ▼
+ [stock_predictor.py]
+     ├─ Train ML model (Linear Regression)
+     ├─ Generate predictions
+     └─ Upload to MinIO (predictions/)
+```
+## High Level
 ```
 yFinance API → [stock_ingestor.py] → MinIO (raw/)
                      ↓
@@ -16,7 +44,6 @@ yFinance API → [stock_ingestor.py] → MinIO (raw/)
                      ↓
            [stock_predictor.py] → MinIO (predictions/)
 ```
-
 ---
 
 ## ⚙️ Tech Stack
