@@ -35,13 +35,12 @@ def transform_and_upload():
 
     for symbol, meta in latest_files.items():
         key = meta["Key"]
-        print(f"📥 Reading {key}")
+        print(f" Reading {key}")
 
         data = s3.get_object(Bucket=BUCKET_RAW, Key=key)["Body"].read()
         records = json.loads(data)
         df = pl.DataFrame(records)
 
-        # Detect datetime column
         dt_col = next((c for c in df.columns if "datetime" in c.lower()), None)
         if dt_col:
             df = df.with_columns([
@@ -63,7 +62,7 @@ def transform_and_upload():
         # Select final clean schema
         cols_to_keep = [c for c in ["Datetime", "Open", "High", "Low", "Close", "Volume", "symbol"] if c in df.columns]
         df = df.select(cols_to_keep)
-        print(f"✅ Cleaned columns for {symbol}: {cols_to_keep}")
+        print(f" Cleaned columns for {symbol}: {cols_to_keep}")
 
         # Write to MinIO
         buffer = io.BytesIO()
@@ -71,9 +70,9 @@ def transform_and_upload():
         timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
         key_out = f"{symbol}_processed_{timestamp}.parquet"
         s3.put_object(Bucket=BUCKET_PROCESSED, Key=key_out, Body=buffer.getvalue())
-        print(f"📤 Uploaded processed file for {symbol} → {key_out}")
+        print(f" Uploaded processed file for {symbol} → {key_out}")
 
-    print("🎯 All symbols processed successfully!")
+    print(" All symbols processed successfully!")
 
 
 if __name__ == "__main__":

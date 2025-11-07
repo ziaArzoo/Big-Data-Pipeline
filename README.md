@@ -6,7 +6,7 @@ A modular, cloud-native data pipeline for real-time stock analytics — showcasi
 
 ---
 
-## 🧱 Architecture
+##  Architecture
 
 ```
 ┌──────────────────────┐
@@ -46,7 +46,7 @@ yFinance API → [stock_ingestor.py] → MinIO (raw/)
 ```
 ---
 
-## ⚙️ Tech Stack
+##  Tech Stack
 - **Language:** Python
 - **ETL Orchestration:** Apache Airflow
 - **Processing:** Polars
@@ -58,7 +58,7 @@ yFinance API → [stock_ingestor.py] → MinIO (raw/)
 
 ---
 
-## 📂 Project Structure
+##  Project Structure
 ```
 BigDataProject/
  ┣ scripts/
@@ -75,17 +75,17 @@ BigDataProject/
 
 ## 🚀 How to Run
 
-### 1️⃣ Start Infrastructure
+### Start Infrastructure
 ```bash
 docker-compose up -d
 ```
 
-### 2️⃣ Activate Virtual Environment
+###  Activate Virtual Environment
 ```bash
 .env\Scriptsctivate
 ```
 
-### 3️⃣ Run Pipeline
+###  Run Pipeline
 ```bash
 python -m scripts.stock_ingestor
 python -m scripts.transform
@@ -93,7 +93,7 @@ python -m scripts.combine_processed
 python -m scripts.stock_predictor
 ```
 
-### 4️⃣ View Buckets
+###  View Buckets
 - `raw/` → Ingested JSON files  
 - `processed/` → Cleaned parquet per stock  
 - `combined/` → Merged dataset  

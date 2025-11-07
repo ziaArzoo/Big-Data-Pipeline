@@ -1,11 +1,7 @@
 import boto3
 from botocore.config import Config
 import os
-
-# -------------------------------
-# MinIO Connection Helper
-# -------------------------------
-
+#class to connect with minio saperated from main code
 def get_minio_client():
     """Create and return a boto3 client for MinIO."""
     MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
@@ -21,11 +17,6 @@ def get_minio_client():
     )
     return s3
 
-
-# -------------------------------
-# Helper: ensure and clear bucket
-# -------------------------------
-
 def ensure_bucket(s3, bucket_name):
     """Ensure a bucket exists, else create it."""
     existing = [b["Name"] for b in s3.list_buckets().get("Buckets", [])]
@@ -40,12 +31,12 @@ def clear_bucket(s3, bucket_name):
     try:
         objects = s3.list_objects_v2(Bucket=bucket_name).get("Contents", [])
         if not objects:
-            print(f"🧹 No existing files found in '{bucket_name}'")
+            print(f"No existing files found in '{bucket_name}'")
             return
         keys = [{"Key": obj["Key"]} for obj in objects]
         s3.delete_objects(Bucket=bucket_name, Delete={"Objects": keys})
-        print(f"🧹 Cleared {len(keys)} files from '{bucket_name}'")
+        print(f" Cleared {len(keys)} files from '{bucket_name}'")
     except Exception as e:
-        print(f"⚠️ Could not clear bucket '{bucket_name}': {e}")
+        print(f" Could not clear bucket '{bucket_name}': {e}")
 
 
