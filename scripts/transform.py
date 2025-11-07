@@ -4,18 +4,12 @@ import polars as pl
 from datetime import datetime
 from minio_utils import get_minio_client, ensure_bucket, clear_bucket
 
-# -------------------------------
-# Config
-# -------------------------------
 BUCKET_RAW = "raw"
 BUCKET_PROCESSED = "processed"
 SYMBOLS = ["AAPL", "MSFT", "GOOG"]
 
-# -------------------------------
-# Helper — get latest file per symbol
-# -------------------------------
 def get_latest_files(s3):
-    """Fetch the latest JSON file for each stock symbol."""
+    """Fetch latest JSON file for each stock symbol."""
     objs = s3.list_objects_v2(Bucket=BUCKET_RAW).get("Contents", [])
     if not objs:
         raise Exception("No raw files found!")
@@ -29,14 +23,10 @@ def get_latest_files(s3):
                     latest[symbol] = obj
     return latest
 
-# -------------------------------
-# Transform Logic
-# -------------------------------
+
 def transform_and_upload():
     s3 = get_minio_client()
     ensure_bucket(s3, BUCKET_PROCESSED)
-
-    # 🧹 Clear processed folder before writing new outputs
     clear_bucket(s3, BUCKET_PROCESSED)
 
     latest_files = get_latest_files(s3)
@@ -58,23 +48,33 @@ def transform_and_upload():
                 pl.col(dt_col).str.strptime(pl.Datetime, "%Y-%m-%d %H:%M:%S", strict=False).alias("Datetime")
             ])
 
-        # Keep essential columns
+        # Normalize columns — remove suffix like _AAPL
+        rename_map = {}
+        for col in df.columns:
+            for metric in ["Open", "High", "Low", "Close", "Volume"]:
+                if metric.lower() in col.lower():
+                    rename_map[col] = metric
+        df = df.rename(rename_map)
+
+        # Add symbol if not present
+        if "symbol" not in df.columns:
+            df = df.with_columns(pl.lit(symbol).alias("symbol"))
+
+        # Select final clean schema
         cols_to_keep = [c for c in ["Datetime", "Open", "High", "Low", "Close", "Volume", "symbol"] if c in df.columns]
         df = df.select(cols_to_keep)
+        print(f"✅ Cleaned columns for {symbol}: {cols_to_keep}")
 
-        # 🧾 Write one file per stock
+        # Write to MinIO
         buffer = io.BytesIO()
         df.write_parquet(buffer)
         timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
         key_out = f"{symbol}_processed_{timestamp}.parquet"
         s3.put_object(Bucket=BUCKET_PROCESSED, Key=key_out, Body=buffer.getvalue())
-        print(f"✅ Uploaded processed file for {symbol} → {key_out}")
+        print(f"📤 Uploaded processed file for {symbol} → {key_out}")
 
     print("🎯 All symbols processed successfully!")
 
 
-# -------------------------------
-# Entry Point
-# -------------------------------
 if __name__ == "__main__":
     transform_and_upload()
